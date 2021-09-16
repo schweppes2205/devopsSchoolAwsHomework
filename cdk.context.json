@@ -1,0 +1,11 @@
+{
+  "availability-zones:account=035015259253:region=us-east-1": [
+    "us-east-1a",
+    "us-east-1b",
+    "us-east-1c",
+    "us-east-1d",
+    "us-east-1e",
+    "us-east-1f"
+  ],
+  "ami:account=035015259253:filters.image-type.0=machine:filters.name.0=amzn2-ami-hvm-2.0*:filters.state.0=available:owners.0=137112412989:region=us-east-1": "ami-087c17d1fe0178315"
+}

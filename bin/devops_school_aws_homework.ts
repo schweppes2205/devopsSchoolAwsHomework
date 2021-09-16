@@ -2,21 +2,28 @@
 import 'source-map-support/register';
 import * as cdk from '@aws-cdk/core';
 import { DevopsSchoolAwsHomeworkStack } from '../lib/devops_school_aws_homework-stack';
+import { StackExtendedProp } from "../interface";
+// Please set the values below.
+// SSH key name.
+const sshAccessKey: string = "schweppes-lab"
+// AWS account number. Set the value if you want account other than default value of environment variable or ~/.aws/credentials file record.
+// in that case please be sure that you have set programmatic access variables in ~/.aws/credentials file or in environment variables.
+const awsAcc: string = "";
+// AWS regios.  Set the value if you want region other  than default value of environment variable or ~/.aws/config file record.
+const awsReg: string = "";
+// RDS instance password. That is for test purposes only. A bit less crazy person should use secret manager.
+const rdsPwdPlTxtAwsHw: string = "password"
 
 const app = new cdk.App();
-new DevopsSchoolAwsHomeworkStack(app, 'DevopsSchoolAwsHomeworkStack', {
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
+const props = {
+  env: {
+    account: awsAcc === "" ? process.env.CDK_DEFAULT_ACCOUNT : awsAcc,
+    region: awsReg === "" ? process.env.CDK_DEFAULT_REGION : awsReg,
+  },
+  AWSSSHKeyName: sshAccessKey,
+  rdsPwdPlTxtAwsHw: rdsPwdPlTxtAwsHw,
 
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+} as StackExtendedProp;
+new DevopsSchoolAwsHomeworkStack(app, 'DevopsSchoolAwsHomeworkStack', props);
 
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
-
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
-});
 cdk.Tags.of(app).add("owner", "admin");

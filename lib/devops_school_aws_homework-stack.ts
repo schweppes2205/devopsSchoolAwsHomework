@@ -4,39 +4,61 @@ import { AutoScalingGroup } from '@aws-cdk/aws-autoscaling'
 import { ApplicationLoadBalancer } from '@aws-cdk/aws-elasticloadbalancingv2'
 import * as rds from '@aws-cdk/aws-rds';
 import { InstanceClass } from '@aws-cdk/aws-ec2';
+import { Secret } from '@aws-cdk/aws-secretsmanager';
+import { StackExtendedProp } from "../interface";
+import { SecretValue } from '@aws-cdk/core';
 
 
 export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
-  constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: cdk.Construct, id: string, props: StackExtendedProp) {
     super(scope, id, props);
-    // -------------------------------
-    // PLEASE CHANGE THAT FOR DESIRED VALUE
-    let AWSSSHKeyName: string = "schweppes-lab";
-    // -------------------------------
 
-    // // create a new VPC
+    const { AWSSSHKeyName, rdsPwdPlTxtAwsHw } = props;
+
+    // create a new VPC
     const vpcAwsHW = new ec2.Vpc(this, "vpcAwsHW", {
       cidr: "10.0.0.0/24",
-      // maxAzs: 2,
-      // natGateways: 0,
-      subnetConfiguration: [
-        {
-          cidrMask: 26,
-          name: "Public",
-          subnetType: ec2.SubnetType.PUBLIC
-        }
-      ],
+      maxAzs: 2,
+      natGateways: 0,
     });
-    // const rdsAwsHw = new rds.DatabaseInstance(this, "rdsAwsHw", {
-    //   engine: rds.DatabaseInstanceEngine.mysql({ version: rds.MysqlEngineVersion.VER_8_0_25 }),
-    //   instanceType: ec2.InstanceType.of(ec2.InstanceClass.T2, ec2.InstanceSize.MICRO),
-    //   vpc: vpcAwsHW,
-    //   vpcSubnets: { subnets: vpcAwsHW.privateSubnets },
-    //   removalPolicy: cdk.RemovalPolicy.DESTROY,
 
-    // });
+    // Generate a desired object value for to provide it to RDS instance.
+    const rdsPwdSecVal: cdk.SecretValue = cdk.SecretValue.plainText(rdsPwdPlTxtAwsHw);
+
+    // create a subnet group for RDS
+    const rdsSGAwsHw = new rds.SubnetGroup(this, "rdsSGAwsHw", {
+      vpc: vpcAwsHW,
+      description: "rds subnet group",
+      vpcSubnets: { subnets: vpcAwsHW.isolatedSubnets },
+    })
+
+    // create a security group for RDS instance
+    let sgNamePattern: string = 'mysql std port to connect from EC2';
+    const sgRdsSshAwsHW = new ec2.SecurityGroup(this, 'sgRdsSshAwsHW', {
+      vpc: vpcAwsHW,
+      description: sgNamePattern,
+      allowAllOutbound: true,
+      securityGroupName: sgNamePattern,
+    });
+
+    // create an RDS instance
+    const rdsAwsHw = new rds.DatabaseInstance(this, "rdsAwsHw", {
+      engine: rds.DatabaseInstanceEngine.mysql({ version: rds.MysqlEngineVersion.VER_8_0_25 }),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T2, ec2.InstanceSize.MICRO),
+      vpc: vpcAwsHW,
+      subnetGroup: rdsSGAwsHw,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      allocatedStorage: 20,
+      maxAllocatedStorage: 30,
+      securityGroups: [sgRdsSshAwsHW],
+      // that should be used in real world
+      // credentials: rds.Credentials.fromGeneratedSecret("admin"),
+      // that is for test only
+      credentials: rds.Credentials.fromPassword("admin", rdsPwdSecVal),
+    });
+
     // SG for SSH access to a EC2 instance
-    let sgNamePattern: string = 'SSH,HTTP from ALB access';
+    sgNamePattern = 'SSH,HTTP from ALB access';
     const sgEc2SshAwsHW = new ec2.SecurityGroup(this, 'sgEc2SshAwsHW', {
       vpc: vpcAwsHW,
       description: sgNamePattern,
@@ -44,12 +66,20 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
       securityGroupName: sgNamePattern,
     });
     sgEc2SshAwsHW.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(22), "SSH Access");
+
+    // Allow all EC2 instances from that SG to connect to RDS
+    sgRdsSshAwsHW.addIngressRule(sgEc2SshAwsHW, ec2.Port.tcp(3306), "SSH Access");
+
     // autosizegroup for a load balancer
     const asgAwsHw = new AutoScalingGroup(this, 'asgAwsHw', {
       vpc: vpcAwsHW,
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T2, ec2.InstanceSize.MICRO),
       // using last available aws linux image
-      machineImage: ec2.MachineImage.latestAmazonLinux(),
+      // machineImage: ec2.MachineImage.latestAmazonLinux(),
+      machineImage: ec2.MachineImage.lookup({
+        name: "amzn2-ami-hvm-2.0*",
+        owners: ["137112412989"],
+      }),
       autoScalingGroupName: "asgAwsHw",
       desiredCapacity: 2,
       minCapacity: 2,
@@ -72,8 +102,9 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
       "systemctl enable httpd",
       "systemctl start httpd",
     );
-    // assigning a tag to the VMs.
-    cdk.Tags.of(asgAwsHw).add("owner", "admin");
+    // // assigning a tag to the VMs.
+    // cdk.Tags.of(asgAwsHw).add("owner", "admin");
+
     // create a security group for application load balancer
     sgNamePattern = 'HTTP access';
     const sgAlbAwsHw = new ec2.SecurityGroup(this, 'sgAlbAwsHw', {
@@ -83,8 +114,11 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
       securityGroupName: sgNamePattern,
     });
     sgAlbAwsHw.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), sgNamePattern);
+
     // adding to a security group of autosizing group a rule to access to 80 port all from ALB security group.
     sgEc2SshAwsHW.addIngressRule(sgAlbAwsHw, ec2.Port.tcp(80), "access from Application Load Balancer");
+
+    // Create application load balancer
     const albAwsHw = new ApplicationLoadBalancer(this, 'albAwsHw', {
       vpc: vpcAwsHW,
       internetFacing: true,
@@ -102,9 +136,7 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
     });
     albAwsHwListener.connections.allowDefaultPortFromAnyIpv4();
 
-
-
-    // create RDS (mssql)
+    // new cdk.CfnOutput(this, 'dbEndpoint', { value: rdsAwsHw.dbInstanceEndpointAddress });
     // shared ebs. how is that to be used in ASG?
     // add sql instance connection details into sh script
     // add s3 with userdata
