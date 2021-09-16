@@ -1,13 +1,10 @@
 import * as cdk from '@aws-cdk/core';
 import * as ec2 from '@aws-cdk/aws-ec2';
-import { AutoScalingGroup } from '@aws-cdk/aws-autoscaling'
+import { AutoScalingGroup, HealthCheck, ElbHealthCheckOptions } from '@aws-cdk/aws-autoscaling'
 import { ApplicationLoadBalancer } from '@aws-cdk/aws-elasticloadbalancingv2'
 import * as rds from '@aws-cdk/aws-rds';
-import { InstanceClass } from '@aws-cdk/aws-ec2';
-import { Secret } from '@aws-cdk/aws-secretsmanager';
 import { StackExtendedProp } from "../interface";
-import { SecretValue } from '@aws-cdk/core';
-
+import * as efs from "@aws-cdk/aws-efs";
 
 export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props: StackExtendedProp) {
@@ -21,6 +18,15 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
       maxAzs: 2,
       natGateways: 0,
     });
+
+    // Create an EFS.
+    const efsAwsHw = new efs.FileSystem(this, "efsAwsHw", {
+      vpc: vpcAwsHW,
+      enableAutomaticBackups: false,
+      fileSystemName: "efsAwsHw",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      vpcSubnets: { subnets: vpcAwsHW.publicSubnets },
+    })
 
     // Generate a desired object value for to provide it to RDS instance.
     const rdsPwdSecVal: cdk.SecretValue = cdk.SecretValue.plainText(rdsPwdPlTxtAwsHw);
@@ -87,23 +93,26 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
       keyName: AWSSSHKeyName,
       securityGroup: sgEc2SshAwsHW,
       vpcSubnets: { subnets: vpcAwsHW.publicSubnets },
+      healthCheck: HealthCheck.elb({ grace: cdk.Duration.minutes(5) } as ElbHealthCheckOptions),
     });
+
+    // adding a dependency with rds instance.
+    asgAwsHw.node.addDependency(rdsAwsHw);
+
+    // allow all EC2 instances from ASG to have an access to efs
+    efsAwsHw.connections.allowDefaultPortFrom(asgAwsHw);
+
     // a bit aukward solution to place user data script, but i haven't yet found any other beautiful solution.
     // there is a possibility to take the script from S3 bucket, but i do not know yet how to put script to S3 with code. Need to investigate more
     asgAwsHw.userData.addCommands(
       "yum update -y",
       "sudo amazon-linux-extras install -y php7.2",
-      "yum install mariadb mariadb-server httpd httpd-tools wget -y",
-      "curl https://wordpress.org/latest.tar.gz --output /tmp/wp.tar.gz",
-      "tar -xzf /tmp/wp.tar.gz -C /tmp",
-      "cp /tmp/wordpress/* /var/www/html/ -R",
-      "chown apache:apache /var/www/html/ -R",
-      "rm /etc/httpd/conf.d/welcome.conf",
-      "systemctl enable httpd",
-      "systemctl start httpd",
+      "yum install mariadb mariadb-server httpd httpd-tools wget amazon-efs-utils -y",
+      "curl https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar --output /tmp/wp-cli.phar",
+      "chmod +x /tmp/wp-cli.phar",
+      "mv /tmp/wp-cli.phar /usr/local/bin/wp",
     );
-    // // assigning a tag to the VMs.
-    // cdk.Tags.of(asgAwsHw).add("owner", "admin");
+
 
     // create a security group for application load balancer
     sgNamePattern = 'HTTP access';
@@ -133,12 +142,28 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
     albAwsHwListener.addTargets('albAwsHwListenerTargets', {
       port: 80,
       targets: [asgAwsHw],
+      stickinessCookieDuration: cdk.Duration.minutes(2),
     });
     albAwsHwListener.connections.allowDefaultPortFromAnyIpv4();
+    // adding new commands to ec2 userdata to configure wp portal
+    asgAwsHw.userData.addCommands(
+      "cd /var/www/html",
+      "wp core download",
+      "mkdir /var/www/html/wp-content/uploads",
+      `echo '${efsAwsHw.fileSystemId}:/ /var/www/html/wp-content/uploads/ efs defaults,tls 0 0' >> /etc/fstab`,
+      "mount -a",
+      `wp core config --dbhost=${rdsAwsHw.dbInstanceEndpointAddress} --dbname=wp_db --dbuser=admin --dbpass=${rdsPwdPlTxtAwsHw}`,
+      "wp db create",
+      `wp core install --url=${albAwsHw.loadBalancerDnsName} --title="Epam AWS homework from CDK" --admin_name=root --admin_password=pass --admin_email=you@example.com`,
+      "wp config set UPLOADS wp-content/uploads",
+      "chown apache:apache /var/www/html/ -R",
+      "rm /etc/httpd/conf.d/welcome.conf",
+      "systemctl enable httpd",
+      "systemctl start httpd",
+    );
 
-    // new cdk.CfnOutput(this, 'dbEndpoint', { value: rdsAwsHw.dbInstanceEndpointAddress });
+    // new cdk.CfnOutput(this, 'dbEndpoint', { value:  });
     // shared ebs. how is that to be used in ASG?
-    // add sql instance connection details into sh script
     // add s3 with userdata
     // add monitoring to asg and alb
 
