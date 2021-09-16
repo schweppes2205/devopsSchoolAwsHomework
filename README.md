@@ -1,4 +1,4 @@
-# WordPress behind LB. AWS cource homework
+# WordPress behind LB. AWS course homework
 ## Project requirements
 - node.js (tested on version v14.17.6)
 - AWS Cloud Development Kit (tested on version 1.121.0)
