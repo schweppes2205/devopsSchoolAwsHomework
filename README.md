@@ -12,6 +12,7 @@ $ cd devopsSchoolAwsHomework
 # Please change sshAccessKey varialbe in `bin\devops_school_aws_homework.ts` with an existing SSH access key name, otherwise deployment will be failed
 
 $ npm install
+$ npm run build
 $ cdk deploy
 ```
 ## Project removal
