@@ -40,7 +40,7 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
 
     // create a security group for RDS instance
     let sgNamePattern: string = 'mysql std port to connect from EC2';
-    const sgRdsSshAwsHW = new ec2.SecurityGroup(this, 'sgRdsSshAwsHW', {
+    const sgRdsAwsHW = new ec2.SecurityGroup(this, 'sgRdsAwsHW', {
       vpc: vpcAwsHW,
       description: sgNamePattern,
       allowAllOutbound: true,
@@ -56,9 +56,8 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       allocatedStorage: 20,
       maxAllocatedStorage: 30,
-      securityGroups: [sgRdsSshAwsHW],
+      securityGroups: [sgRdsAwsHW],
       // that should be used in real world
-      // credentials: rds.Credentials.fromGeneratedSecret("admin"),
       // that is for test only
       credentials: rds.Credentials.fromPassword("admin", rdsPwdSecVal),
     });
@@ -74,7 +73,7 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
     sgEc2SshAwsHW.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(22), "SSH Access");
 
     // Allow all EC2 instances from that SG to connect to RDS
-    sgRdsSshAwsHW.addIngressRule(sgEc2SshAwsHW, ec2.Port.tcp(3306), "SSH Access");
+    sgRdsAwsHW.addIngressRule(sgEc2SshAwsHW, ec2.Port.tcp(3306), "MySql Access");
 
     // autosizegroup for a load balancer
     const asgAwsHw = new AutoScalingGroup(this, 'asgAwsHw', {
@@ -161,11 +160,5 @@ export class DevopsSchoolAwsHomeworkStack extends cdk.Stack {
       "systemctl enable httpd",
       "systemctl start httpd",
     );
-
-    // new cdk.CfnOutput(this, 'dbEndpoint', { value:  });
-    // shared ebs. how is that to be used in ASG?
-    // add s3 with userdata
-    // add monitoring to asg and alb
-
   }
 }
